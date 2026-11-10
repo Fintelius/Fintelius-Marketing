@@ -1,0 +1,12 @@
+[
+  {"industry": "Oil and gas refineries", "regions": ["India", "UAE", "Oman", "Saudi Arabia"],
+   "products": ["Air Cooled Heat Exchangers", "Shell and Tube Heat Exchangers", "Pressure Vessels"]},
+  {"industry": "Petrochemicals", "regions": ["India", "UAE", "Qatar"],
+   "products": ["Air Cooled Heat Exchangers", "Shell and Tube Heat Exchangers", "Process Skids and Piping Spools"]},
+  {"industry": "Fertilisers", "regions": ["India"],
+   "products": ["Shell and Tube Heat Exchangers", "Pressure Vessels", "Air Cooled Heat Exchangers"]},
+  {"industry": "Power plants and captive power", "regions": ["India", "UAE"],
+   "products": ["Air Cooled Heat Exchangers", "Finned Tubes", "Shell and Fin Exchangers"]},
+  {"industry": "Gas processing and LNG", "regions": ["India", "UAE", "Oman", "Qatar"],
+   "products": ["Air Cooled Heat Exchangers", "Process Skids and Piping Spools", "Pressure Vessels"]}
+]
