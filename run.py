@@ -72,7 +72,7 @@ def cmd_research(a, con):
 
 def cmd_prepare(a, con):
     rows = con.execute(
-        "SELECT * FROM contacts WHERE status='new' AND id NOT IN (SELECT contact_id FROM emails WHERE kind='intro') "
+        "SELECT * FROM contacts WHERE status='new' AND id NOT IN (SELECT contact_id FROM emails WHERE kind='intro' AND status!='rejected') "
         "ORDER BY id LIMIT ?", (a.limit,)).fetchall()
     n = 0
     for c in rows:

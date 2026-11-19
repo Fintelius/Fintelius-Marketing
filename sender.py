@@ -51,7 +51,8 @@ def run(con, dry_run=False, max_gap=(60, 180), sleep=time.sleep):
             result["sent"] += 1
             continue
         try:
-            graph.send_mail(e["to_email"], e["subject"], writer.html_for(e), reply_to=P.REPLY_TO)
+            graph.send_mail(e["to_email"], e["subject"], writer.html_for(e), reply_to=P.REPLY_TO,
+                            attachment=guard.settings.brochure_path if e["kind"] == "intro" else None)
             con.execute("UPDATE emails SET status='sent', sent_at=? WHERE id=?", (db.now(), e["id"]))
             con.execute("UPDATE contacts SET status='emailed' WHERE id=? AND status='new'", (e["contact_id"],))
             con.commit()

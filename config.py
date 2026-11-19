@@ -35,6 +35,12 @@ class Settings:
     tz = property(lambda s: os.environ.get("TZ_NAME", "Asia/Kolkata"))
 
     @property
+    def brochure_path(self):
+        p = os.environ.get("BROCHURE")
+        p = Path(p) if p else BASE / "brochure.pdf"
+        return p if p.exists() and p.stat().st_size <= 2_500_000 else None
+
+    @property
     def data_dir(self):
         d = os.environ.get("DATA_DIR")
         return Path(d) if d else BASE.parent / "data"

@@ -3,15 +3,20 @@ import html
 import db
 import llm
 import guard
+from config import settings
 import profile as P
 
 SYS = (
-    "You write short, personal, professional business emails for the Managing Director of an Indian equipment "
-    "manufacturer. Rules: plain simple English; 90 to 140 words; no prices, no quotations, no discounts, no delivery "
-    "promises, no guarantees; no flattery; no marketing buzzwords; mention one concrete reason this company may need "
-    "our products (use the project or company facts given, do not invent facts); one clear ask: that we be considered "
-    "for their vendor list / enquiries, and how to register if they have a process. Do not write a greeting or "
-    "signature. Reply with JSON only: {\"subject\": \"...\", \"body\": \"...\"}")
+    "You write short, plain, professional business emails for the Managing Director of an Indian equipment "
+    "manufacturer, to a company that may buy from him. Rules: simple English; 70 to 110 words in total; three short "
+    "paragraphs. Paragraph 1: who we are in one sentence (manufacturer in Ahmedabad since 2012; ADNOC AVL no. as given) "
+    "and the products that fit this recipient. Paragraph 2: one sentence on why we are writing; state ONLY what the "
+    "given facts say about the recipient, softly (for example 'we understand you work in refinery projects'); never "
+    "claim to know their projects, contracts or needs unless a project is given in the facts; never invent anything. "
+    "Paragraph 3: ask to be considered for their vendor list and enquiries, and ask who handles vendor registration "
+    "(name or email) or how to register. No prices, quotations, discounts, delivery promises or guarantees; no "
+    "flattery or buzzwords. Do not write a greeting, a closing, a signature, or any line about attachments. "
+    "Reply with JSON only: {\"subject\": \"...\", \"body\": \"...\"}")
 
 
 def _context(con, contact):
@@ -24,8 +29,11 @@ def _context(con, contact):
 
 
 def _assemble(body):
-    text = "Dear Sir,\n\n" + body.strip() + "\n\n" + P.UNSUB_LINE + "\n\n" + P.signature_text()
-    h = ("<p>Dear Sir,</p>" + "".join(f"<p>{html.escape(par)}</p>" for par in body.strip().split("\n\n")) +
+    body = body.strip()
+    if settings.brochure_path:
+        body += "\n\nOur company brochure is attached for your reference."
+    text = "Dear Sir,\n\n" + body + "\n\n" + P.UNSUB_LINE + "\n\n" + P.signature_text()
+    h = ("<p>Dear Sir,</p>" + "".join(f"<p>{html.escape(par)}</p>" for par in body.split("\n\n")) +
          f"<p>{html.escape(P.UNSUB_LINE)}</p>" + P.signature_html())
     return text, h
 

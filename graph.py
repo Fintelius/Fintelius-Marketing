@@ -38,7 +38,7 @@ def check_connection():
     return r.status_code, (r.text[:300] if r.status_code != 200 else "ok")
 
 
-def send_mail(to_email, subject, html_body, reply_to=None):
+def send_mail(to_email, subject, html_body, reply_to=None, attachment=None):
     msg = {
         "subject": subject,
         "body": {"contentType": "HTML", "content": html_body},
@@ -46,6 +46,12 @@ def send_mail(to_email, subject, html_body, reply_to=None):
     }
     if reply_to:
         msg["replyTo"] = [{"emailAddress": {"address": reply_to}}]
+    if attachment:
+        import base64
+        msg["attachments"] = [{
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": attachment.name, "contentType": "application/pdf",
+            "contentBytes": base64.b64encode(attachment.read_bytes()).decode()}]
     r = requests.post(f"{GRAPH}/users/{settings.mailbox}/sendMail", headers=_h(),
                       json={"message": msg, "saveToSentItems": True}, timeout=60)
     if r.status_code != 202:
