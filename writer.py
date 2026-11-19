@@ -19,6 +19,13 @@ SYS = (
     "Reply with JSON only: {\"subject\": \"...\", \"body\": \"...\"}")
 
 
+FOLLOW_SYS = (
+    "You write a very short (40 to 70 words), polite follow-up email for the Managing Director of an Indian equipment "
+    "manufacturer, a week after an introduction. Say we wrote earlier, ask again who handles vendor registration or "
+    "how to register. No prices, quotations or promises; do not invent facts. Do not write a greeting, closing or "
+    "signature. Reply with JSON only: {\"subject\": \"...\", \"body\": \"...\"}")
+
+
 def _context(con, contact):
     comp = con.execute("SELECT * FROM companies WHERE id=?", (contact["company_id"],)).fetchone()
     proj = None
@@ -30,33 +37,56 @@ def _context(con, contact):
 
 def _assemble(body):
     body = body.strip()
-    if settings.brochure_path:
-        body += "\n\nOur company brochure is attached for your reference."
     text = "Dear Sir,\n\n" + body + "\n\n" + P.UNSUB_LINE + "\n\n" + P.signature_text()
     h = ("<p>Dear Sir,</p>" + "".join(f"<p>{html.escape(par)}</p>" for par in body.split("\n\n")) +
          f"<p>{html.escape(P.UNSUB_LINE)}</p>" + P.signature_html())
     return text, h
 
 
+ME_WORDS = ("uae", "emirates", "abu dhabi", "dubai", "saudi", "kuwait", "qatar", "oman", "bahrain", "adnoc", "middle east",
+            "iraq", "iran", "egypt", "africa", "nigeria", "algeria")
+
+
+INDUSTRY_PHRASE = {
+    "oil and gas refineries": "Oil and Gas Refinery and Petrochemical Complex",
+    "petrochemicals": "Oil and Gas Refinery and Petrochemical Complex",
+    "fertilisers": "Fertiliser",
+    "power plants and captive power": "Power Plant and Captive Power",
+    "gas processing and lng": "Gas Processing and LNG",
+}
+
+
+def build_intro(comp, proj):
+    """Fixed wording written by the owner. Only the industry phrase and the ADNOC block change."""
+    industry = ((comp["industry"] if comp else "") or "").strip().lower()
+    where = " ".join(str(x or "") for x in ((comp["country"], comp["name"], comp["notes"]) if comp else ())).lower()
+    p1 = (f"Fintelius Engineering Private Limited is a process equipment manufacturer near Ahmedabad, India, "
+          f"accredited with {P.APPROVALS}. We are a pre-qualified ADNOC vendor (Unified ID {P.ADNOC_AVL}).")
+    if proj and proj["name"]:
+        who = f"We understand you are involved in {proj['name']}."
+    elif industry in INDUSTRY_PHRASE:
+        who = f"We understand your organisation is active in {INDUSTRY_PHRASE[industry]} projects."
+    else:
+        who = ""
+    p2 = (who + " We supply shell and tube heat exchangers, air cooled heat exchangers, tube bundles, finned tubes, "
+          "pressure vessels and process skids.").strip()
+    paras = [p1, p2]
+    if any(w in where for w in ME_WORDS):
+        paras.append("For ADNOC projects we can support these categories:\n" + P.ADNOC_CATEGORIES)
+    paras.append("We would like to be considered for your vendor list and future enquiries. Could you please tell us "
+                 "who handles vendor registration (name or email), or how we should register?"
+                 + (" Our company brochure is enclosed for your quick review." if settings.brochure_path else ""))
+    return "\n\n".join(paras)
+
+
 def draft_intro(con, contact):
     comp, proj = _context(con, contact)
-    facts = [f"About us: {P.FACTS}"]
-    if comp:
-        facts.append(f"Recipient company: {comp['name']} ({comp['type'] or 'type unknown'}), {comp['country'] or ''}, "
-                     f"industry: {comp['industry'] or ''}. Note: {comp['notes'] or ''}")
-    if proj:
-        facts.append(f"Relevant project: {proj['name']} for {proj['client']}, {proj['location']}, stage {proj['stage']}. "
-                     f"{proj['summary']}")
-    facts.append(f"Recipient role: {contact['designation'] or 'unknown'} {contact['department'] or ''}")
-    facts.append("Products to mention (choose the ones that fit): " + ", ".join(P.PRODUCTS))
-    out = llm.ask_json(SYS, "\n".join(facts), max_tokens=900)
-    if not isinstance(out, dict) or not out.get("subject") or not out.get("body"):
-        return None
-    text, h = _assemble(out["body"])
-    problems = guard.check_draft(out["subject"], text)
+    subject = "Fintelius Engineering: request to be considered for your vendor list"
+    text, h = _assemble(build_intro(comp, proj))
+    problems = guard.check_draft(subject, text)
     cur = con.execute(
         "INSERT INTO emails(contact_id,kind,subject,body,status,problems,created_at) VALUES(?,?,?,?,?,?,?)",
-        (contact["id"], "intro", out["subject"].strip(), text, "blocked" if problems else "draft",
+        (contact["id"], "intro", subject, text, "blocked" if problems else "draft",
          "; ".join(problems), db.now()))
     con.commit()
     return cur.lastrowid
@@ -83,7 +113,7 @@ def draft_followups(con, limit=5):
         (limit,)).fetchall()
     n = 0
     for c in rows:
-        sys = SYS.replace("a short, personal", "a very short (50 to 70 words), polite follow-up")
+        sys = FOLLOW_SYS
         out = llm.ask_json(sys, f"This is a follow-up to our introduction email sent a week ago to {c['designation'] or 'a procurement contact'}. "
                                 f"About us: {P.FACTS}", max_tokens=600)
         if not isinstance(out, dict) or not out.get("body"):
