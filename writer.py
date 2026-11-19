@@ -43,8 +43,8 @@ def _assemble(body):
     return text, h
 
 
-ME_WORDS = ("uae", "emirates", "abu dhabi", "dubai", "saudi", "kuwait", "qatar", "oman", "bahrain", "adnoc", "middle east",
-            "iraq", "iran", "egypt", "africa", "nigeria", "algeria")
+ME_WORDS = ("uae", "emirates", "abu dhabi", "dubai", "saudi", "kuwait", "qatar", "oman", "bahrain", "adnoc",
+            "middle east", "gulf", "gcc", "iraq", "iran", "egypt")
 
 
 INDUSTRY_PHRASE = {
@@ -60,8 +60,11 @@ def build_intro(comp, proj):
     """Fixed wording written by the owner. Only the industry phrase and the ADNOC block change."""
     industry = ((comp["industry"] if comp else "") or "").strip().lower()
     where = " ".join(str(x or "") for x in ((comp["country"], comp["name"], comp["notes"]) if comp else ())).lower()
+    me = any(w in where for w in ME_WORDS)
     p1 = (f"Fintelius Engineering Private Limited is a process equipment manufacturer near Ahmedabad, India, "
-          f"accredited with {P.APPROVALS}. We are a pre-qualified ADNOC vendor (Unified ID {P.ADNOC_AVL}).")
+          f"accredited with {P.APPROVALS}.")
+    if me:
+        p1 += f" We are a pre-qualified ADNOC vendor (Unified ID {P.ADNOC_AVL})."
     if proj and proj["name"]:
         who = f"We understand you are involved in {proj['name']}."
     elif industry in INDUSTRY_PHRASE:
@@ -71,7 +74,7 @@ def build_intro(comp, proj):
     p2 = (who + " We supply shell and tube heat exchangers, air cooled heat exchangers, tube bundles, finned tubes, "
           "pressure vessels and process skids.").strip()
     paras = [p1, p2]
-    if any(w in where for w in ME_WORDS):
+    if me:
         paras.append("For ADNOC projects we can support these categories:\n" + P.ADNOC_CATEGORIES)
     paras.append("We would like to be considered for your vendor list and future enquiries. Could you please tell us "
                  "who handles vendor registration (name or email), or how we should register?"
