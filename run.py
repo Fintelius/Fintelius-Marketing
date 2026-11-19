@@ -12,6 +12,7 @@ import research
 import sender
 import vendor
 import writer
+import profile as P
 import digest
 from config import settings
 
@@ -96,6 +97,16 @@ def cmd_show(a, con):
     print(f"To: {e['name']} <{e['email']}>\nSubject: {e['subject']}\nStatus: {e['status']} {e['problems'] or ''}\n\n{e['body']}")
 
 
+def cmd_test_send(a, con):
+    """Send one stored draft to a test address (for example yourself). Changes nothing in the records."""
+    e = con.execute("SELECT * FROM emails WHERE id=?", (a.id,)).fetchone()
+    if not e:
+        sys.exit("No such email")
+    graph.send_mail(a.to, "[TEST] " + e["subject"], writer.html_for(e), reply_to=P.REPLY_TO,
+                    attachment=settings.brochure_path if e["kind"] == "intro" else None)
+    print("Test email sent to", a.to, "| brochure attached:", bool(settings.brochure_path))
+
+
 def cmd_approve(a, con):
     if not (a.all or a.id):
         sys.exit("Use --all or --id N")
@@ -167,6 +178,7 @@ def main():
     s = sp.add_parser("show"); s.add_argument("id", type=int)
     s = sp.add_parser("approve"); s.add_argument("--all", action="store_true"); s.add_argument("--id", type=int)
     s = sp.add_parser("reject"); s.add_argument("id", type=int)
+    s = sp.add_parser("test-send"); s.add_argument("id", type=int); s.add_argument("--to", required=True)
     a = p.parse_args()
     con = db.connect()
     if a.cmd == "stop":
@@ -174,7 +186,7 @@ def main():
     if a.cmd == "resume":
         guard.resume(); return print("Sending can resume.")
     fn = {"init": cmd_init, "check": cmd_check, "import-csv": cmd_import_csv, "research": cmd_research,
-          "prepare": cmd_prepare, "show": cmd_show, "approve": cmd_approve, "reject": cmd_reject,
+          "prepare": cmd_prepare, "show": cmd_show, "approve": cmd_approve, "reject": cmd_reject, "test-send": cmd_test_send,
           "send": cmd_send, "inbox": cmd_inbox, "daily": cmd_daily, "status": cmd_status}[a.cmd]
     out = fn(a, con)
     if a.cmd in ("research", "prepare") and out:
