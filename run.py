@@ -182,6 +182,28 @@ def cmd_log(a, con):
         print(" | ".join(str(v or "") for v in x))
 
 
+def cmd_enquiry(a, con):
+    import enquiries
+    import archive
+    enquiries.ensure(con)
+    if a.sub == "add":
+        fp = enquiries.add(con, a.fp, a.company, region=a.region, country=a.country, contact_name=a.contact,
+                           email=a.email, designation=a.designation, phone=a.phone, sr=a.sr, client_ref=a.ref,
+                           product=a.product, received_via=a.via, received_on=a.received, due_date=a.due,
+                           onedrive_folder=a.onedrive, outlook_folder=a.outlook, ack_sent=a.ack,
+                           docs_uploaded=a.docs, notes=a.notes, website=a.website)
+        archive.refresh(con)
+        print("recorded", fp)
+    elif a.sub == "update":
+        enquiries.update(con, a.fp, a.status, a.note or "")
+        print("updated", a.fp)
+    elif a.sub == "done-queue":
+        con.execute("UPDATE enquiry_queue SET status='handled' WHERE id=?", (a.id,)); con.commit()
+    else:
+        for x in enquiries.report_lines(con):
+            print(x)
+
+
 def cmd_status(a, con):
     for t in ("companies", "contacts", "projects", "emails", "dnc"):
         print(t, con.execute(f"SELECT count(*) FROM {t}").fetchone()[0])
@@ -211,6 +233,12 @@ def main():
     s = sp.add_parser("approve"); s.add_argument("--all", action="store_true"); s.add_argument("--id", type=int)
     s = sp.add_parser("reject"); s.add_argument("id", type=int)
     s = sp.add_parser("test-send"); s.add_argument("id", type=int); s.add_argument("--to", required=True)
+    s = sp.add_parser("enquiry"); s.add_argument("sub", choices=["add", "update", "list", "done-queue"])
+    for k in ("fp", "company", "region", "country", "contact", "email", "designation", "phone", "sr", "ref", "product",
+              "via", "received", "due", "onedrive", "outlook", "notes", "website", "status", "note"):
+        s.add_argument("--" + k, default="")
+    s.add_argument("--ack", type=int, default=0); s.add_argument("--docs", type=int, default=0)
+    s.add_argument("--id", type=int)
     a = p.parse_args()
     con = db.connect()
     if a.cmd == "stop":
@@ -219,7 +247,7 @@ def main():
         guard.resume(); return print("Sending can resume.")
     fn = {"init": cmd_init, "check": cmd_check, "import-csv": cmd_import_csv, "research": cmd_research,
           "prepare": cmd_prepare, "show": cmd_show, "approve": cmd_approve, "reject": cmd_reject, "test-send": cmd_test_send,
-          "send": cmd_send, "inbox": cmd_inbox, "daily": cmd_daily, "status": cmd_status, "records": cmd_records, "plan": cmd_plan, "log": cmd_log}[a.cmd]
+          "send": cmd_send, "inbox": cmd_inbox, "daily": cmd_daily, "status": cmd_status, "records": cmd_records, "enquiry": cmd_enquiry, "plan": cmd_plan, "log": cmd_log}[a.cmd]
     out = fn(a, con)
     if a.cmd in ("research", "prepare") and out:
         print("\n".join(out))

@@ -4,6 +4,7 @@ import db
 import graph
 import guard
 import vendor
+import enquiries
 from config import settings
 
 
@@ -42,6 +43,9 @@ def build(con, inbox_stats=None, steps=None):
     if blocked:
         h.append("<h3>Blocked by safety rules</h3><ul>" + "".join(
             f"<li>#{b['id']} {html.escape(b['email'])}: {html.escape(b['problems'] or '')}</li>" for b in blocked) + "</ul>")
+    el = enquiries.report_lines(con)
+    if el:
+        h.append("<h3>Client enquiries (registration agent)</h3><ul>" + "".join(f"<li>{html.escape(x)}</li>" for x in el) + "</ul>")
     nv = vendor.needs_you(con)
     if nv:
         h.append("<h3>Vendor registration - needs a person</h3><ul>" + "".join(

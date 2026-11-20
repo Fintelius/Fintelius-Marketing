@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 import db
 import research
+import enquiries
 from config import settings
 
 SUBFOLDERS = ["01 Company Info", "02 Contacts", "03 Correspondence", "04 Vendor Registration",
@@ -68,6 +69,17 @@ def write_company_files(con):
             fn = d / "03 Correspondence" / f"{stamp} {e['kind']} to {safe(e['to_email'])} ({e['status']}) #{e['id']}.txt"
             fn.write_text(f"To: {e['to_email']}\nSubject: {e['subject']}\nStatus: {e['status']}\n\n{e['body']}",
                           encoding="utf-8")
+        enquiries.ensure(con)
+        en = con.execute("SELECT * FROM enquiries WHERE company_id=? ORDER BY id", (c["id"],)).fetchall()
+        if en:
+            lines = []
+            for e in en:
+                lines += [f"{e['fp_no']} (Sr {e['sr']}) | {e['product']} | client ref {e['client_ref']} | status {e['status']}",
+                          f"  received {e['received_on']} via {e['received_via']} | due {e['due_date'] or ''} | "
+                          f"ack sent {bool(e['ack_sent'])} | documents on record {bool(e['docs_uploaded'])}",
+                          f"  OneDrive: {e['onedrive_folder'] or ''}", f"  Outlook: {e['outlook_folder'] or ''}",
+                          f"  Notes: {e['notes'] or ''}", ""]
+            (d / "05 Tenders and Enquiries" / "enquiries.txt").write_text("\n".join(lines), encoding="utf-8")
         ports = con.execute("SELECT * FROM portals WHERE company_id=?", (c["id"],)).fetchall()
         reg = [f"{p['kind']} | {p['url']} | {p['status']} | found {p['found_at']}" for p in ports]
         (d / "04 Vendor Registration" / "portals.txt").write_text("\n".join(reg), encoding="utf-8")
@@ -95,6 +107,13 @@ def write_logs(con):
     ws.title = "Activity log"
     _sheet(ws, ["Date and time (UTC)", "Region", "Company", "Agent", "Action", "Result", "Source link"],
            [tuple(r) for r in rows])
+    enquiries.ensure(con)
+    ws0 = wb.create_sheet("Client enquiries")
+    en = con.execute("SELECT e.fp_no,e.sr,c.name,e.product,e.client_ref,e.received_on,e.due_date,e.status,e.ack_sent,"
+                     "e.docs_uploaded,e.onedrive_folder,e.last_activity FROM enquiries e LEFT JOIN companies c ON "
+                     "c.id=e.company_id ORDER BY e.id DESC").fetchall()
+    _sheet(ws0, ["FP no", "Sr", "Company", "Product", "Client ref", "Received", "Due", "Status", "Ack sent",
+                 "Documents on record", "OneDrive folder", "Last activity"], [tuple(x) for x in en])
     wb.save(root() / "00 Master Log.xlsx")
     for r in research.REGIONS:
         wb = Workbook()

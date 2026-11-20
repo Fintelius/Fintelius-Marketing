@@ -3,6 +3,7 @@ import re
 import datetime as dt
 import db
 import graph
+import enquiries
 
 BOUNCE_FROM = ("mailer-daemon", "postmaster", "microsoftexchange", "mail delivery subsystem")
 BOUNCE_SUBJ = ("undeliverable", "delivery status notification", "delivery has failed", "returned mail",
@@ -44,8 +45,17 @@ def process(con, days=3):
             stats["auto"] += 1
             continue
         row = con.execute("SELECT * FROM contacts WHERE lower(email)=?", (addr,)).fetchone()
+        enq = enquiries.find_for_message(con, addr, subj)
+        if row is None and enq:
+            enquiries.note_response(con, enq, addr, subj, preview)
+            stats["enquiry_responses"] = stats.get("enquiry_responses", 0) + 1
+            stats["needs_you"].append(f"CLIENT RESPONSE on {enq['fp_no']} from {addr}: {subj} - {preview}")
+            continue
         if row is None:
             # reply from a colleague or different address: keep for the human
+            if enquiries.looks_like_enquiry(subj, preview):
+                enquiries.queue_possible(con, addr, subj, preview)
+                stats["needs_you"].append(f"POSSIBLE NEW ENQUIRY from {addr}: {subj} - {preview}")
             stats["other"] += 1
             stats["needs_you"].append(f"From {addr}: {subj} - {preview}")
             db.log(con, "inbox_other", f"{addr} | {subj}")
@@ -56,8 +66,17 @@ def process(con, days=3):
             comp, reg = db.company_label(con, row["company_id"])
             db.record(con, "inbox monitor", "opt-out", addr, reg, comp)
             continue
-        con.execute("UPDATE contacts SET status='replied' WHERE id=?", (row["id"],))
+        if enq:
+            enquiries.note_response(con, enq, addr, subj, preview)
+            stats["enquiry_responses"] = stats.get("enquiry_responses", 0) + 1
+            stats["needs_you"].append(f"CLIENT RESPONSE on {enq['fp_no']} from {addr}: {subj} - {preview}")
+            continue
+        if row["status"] != "client":
+            con.execute("UPDATE contacts SET status='replied' WHERE id=?", (row["id"],))
         stats["replied"] += 1
+        if enquiries.looks_like_enquiry(subj, preview):
+            enquiries.queue_possible(con, addr, subj, preview, row["company_id"])
+            stats["needs_you"].append(f"POSSIBLE NEW ENQUIRY from {row['name'] or addr} ({addr}): {subj}")
         comp, reg = db.company_label(con, row["company_id"])
         db.record(con, "inbox monitor", "reply received", f"{addr}: {subj}", reg, comp)
         stats["needs_you"].append(f"REPLY from {row['name'] or addr} ({addr}): {subj} - {preview}")
