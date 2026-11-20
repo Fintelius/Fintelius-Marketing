@@ -38,27 +38,35 @@ def assess_potential(con, meter, force=False):
         if (dt.date.today() - dt.date.fromisoformat(row[0][:10])).days < REASSESS_DAYS:
             return 0
     names = [r["name"] for r in research.REGIONS]
-    q = ("Score each region 1-10 for the sales potential of process heat exchangers and pressure vessels from an "
-         "Indian manufacturer over the next 12 months. Base it on current refinery, petrochemical, fertiliser, power "
-         "and gas projects, budgets and tenders, import openness to Indian suppliers, and competition. Regions: "
-         f"{json.dumps(names)}.\nReturn a JSON array of objects: region (exactly as given), score (integer 1-10), "
-         "reason (one sentence with a fact), source_url.")
-    data = llm.ask_json(SYS, q, web=True, max_searches=8, max_tokens=3500, meter=meter)
     n = 0
-    for d in data if isinstance(data, list) else []:
-        if d.get("region") not in names:
-            continue
+    for i in range(0, len(names), 6):          # three smaller calls: a long answer for all 17 gets cut off
+        group = names[i:i + 6]
+        q = ("Score each region 1-10 for the sales potential of process heat exchangers and pressure vessels from an "
+             "Indian manufacturer over the next 12 months. Base it on current refinery, petrochemical, fertiliser, "
+             "power and gas projects, budgets and tenders, openness to Indian suppliers, and competition. Regions: "
+             f"{json.dumps(group)}.\nReturn a JSON array of objects: region (exactly as given), score (integer "
+             "1-10), reason (ONE sentence, maximum 25 words, with one fact), source_url. No other text.")
         try:
-            s = max(1, min(10, int(d.get("score"))))
-        except (TypeError, ValueError):
+            data = llm.ask_json(SYS, q, web=True, max_searches=5, max_tokens=2500, meter=meter)
+        except Exception as e:
+            db.record(con, "orchestrator", "potential assessment failed", f"{group[0]}...: {str(e)[:150]}")
             continue
-        con.execute("INSERT INTO region_plan(region,potential,reason,source,assessed_at) VALUES(?,?,?,?,?) "
-                    "ON CONFLICT(region) DO UPDATE SET potential=excluded.potential, reason=excluded.reason, "
-                    "source=excluded.source, assessed_at=excluded.assessed_at",
-                    (d["region"], s, str(d.get("reason", ""))[:300], str(d.get("source_url", ""))[:300], db.now()))
-        db.record(con, "orchestrator", "market potential assessed", f"{s}/10: {d.get('reason', '')}"[:300],
-                  d["region"], "", d.get("source_url"))
-        n += 1
+        for d in data if isinstance(data, list) else []:
+            if not isinstance(d, dict) or d.get("region") not in group:
+                continue
+            try:
+                s = max(1, min(10, int(d.get("score"))))
+            except (TypeError, ValueError):
+                continue
+            con.execute("INSERT INTO region_plan(region,potential,reason,source,assessed_at) VALUES(?,?,?,?,?) "
+                        "ON CONFLICT(region) DO UPDATE SET potential=excluded.potential, reason=excluded.reason, "
+                        "source=excluded.source, assessed_at=excluded.assessed_at",
+                        (d["region"], s, str(d.get("reason", ""))[:300], str(d.get("source_url", ""))[:300], db.now()))
+            db.record(con, "orchestrator", "market potential assessed", f"{s}/10: {d.get('reason', '')}"[:300],
+                      d["region"], "", d.get("source_url"))
+            n += 1
+        if not data:
+            db.record(con, "orchestrator", "potential assessment empty", f"no scores returned for {', '.join(group)}")
     con.commit()
     return n
 
