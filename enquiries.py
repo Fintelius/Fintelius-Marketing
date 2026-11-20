@@ -221,3 +221,58 @@ def send_cost_report(con):
     db.record(con, "enquiry registration agent", "cost report sent", f"{len(pending_cost(con))} pending cost, "
               f"{len(to_review(con))} offers to review")
     return True
+
+
+HANDOFF_DIR = "handoff/enquiries"
+HANDOFF_FIELDS = ("fp", "company", "region", "country", "contact", "email", "designation", "phone", "sr", "ref",
+                  "product", "via", "received", "due", "onedrive", "outlook", "notes", "website", "ack", "docs")
+
+
+def import_handoff(con, folder=HANDOFF_DIR):
+    """Import FP registrations written by the enquiry tracker agent as one JSON file per FP.
+
+    The tracker works from fintelius.net (the FP number exists only there) and cannot reach this database, so it
+    commits handoff/enquiries/FP-<no>.json to the repo and this runs after a git pull. Safe to run repeatedly:
+    a new FP is added; a known FP only has its ack/docs flags raised (never lowered) and the extra fields filled."""
+    import json
+    import os
+    ensure(con)
+    done = []
+    if not os.path.isdir(folder):
+        return done
+    for name in sorted(os.listdir(folder)):
+        if not name.lower().endswith(".json"):
+            continue
+        d = json.load(open(os.path.join(folder, name), encoding="utf-8"))
+        fpm = FP_RE.search(str(d.get("fp", "")))
+        if not fpm or not d.get("company"):
+            print("skipped", name, "(needs fp and company)")
+            continue
+        fp = "FP-" + fpm.group(1)
+        row = con.execute("SELECT * FROM enquiries WHERE fp_no=?", (fp,)).fetchone()
+        ack, docs = int(d.get("ack") or 0), int(d.get("docs") or 0)
+        if not row:
+            add(con, fp, d["company"], region=d.get("region", ""), country=d.get("country", ""),
+                contact_name=d.get("contact", ""), email=d.get("email", ""), designation=d.get("designation", ""),
+                phone=d.get("phone", ""), sr=d.get("sr", ""), client_ref=d.get("ref", ""), product=d.get("product", ""),
+                received_via=d.get("via", ""), received_on=d.get("received", ""), due_date=d.get("due", ""),
+                onedrive_folder=d.get("onedrive", ""), outlook_folder=d.get("outlook", ""), ack_sent=ack,
+                docs_uploaded=docs, notes=d.get("notes", ""), website=d.get("website", ""))
+            done.append(fp + " added")
+        else:
+            changes = []
+            if ack and not row["ack_sent"]:
+                con.execute("UPDATE enquiries SET ack_sent=1 WHERE fp_no=?", (fp,)); changes.append("ack")
+            if docs and not row["docs_uploaded"]:
+                con.execute("UPDATE enquiries SET docs_uploaded=1 WHERE fp_no=?", (fp,)); changes.append("docs")
+            for col, key in (("onedrive_folder", "onedrive"), ("outlook_folder", "outlook"), ("sr", "sr"),
+                             ("client_ref", "ref"), ("product", "product"), ("due_date", "due")):
+                if d.get(key) and not row[col]:
+                    con.execute(f"UPDATE enquiries SET {col}=? WHERE fp_no=?", (d[key], fp)); changes.append(col)
+            if changes:
+                con.execute("UPDATE enquiries SET last_activity=? WHERE fp_no=?", (db.now(), fp))
+                con.commit()
+                comp, reg = db.company_label(con, row["company_id"])
+                db.record(con, "enquiry tracker agent", "enquiry updated", f"{fp}: completed " + ", ".join(changes), reg, comp)
+                done.append(fp + " completed " + ",".join(changes))
+    return done
