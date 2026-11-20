@@ -47,17 +47,20 @@ def known_names(con, table, region_name, col="name", limit=150):
     return [x[0] for x in rows if x[0]]
 
 
-def due_regions(con, today=None, max_regions=6):
+def due_regions(con, today=None, max_regions=8):
     """Regions whose turn has come, most overdue first, at most max_regions per day."""
     today = today or dt.date.today()
     out = []
+    import orchestrator
     for r in REGIONS:
+        plan = orchestrator.get_plan(con, r["name"])
+        every = plan["every_days"] if plan and plan["every_days"] else r["every_days"]
         row = con.execute("SELECT last_run FROM region_runs WHERE region=?", (r["name"],)).fetchone()
         if row and row["last_run"]:
             days = (today - dt.date.fromisoformat(row["last_run"][:10])).days
-            if days < r["every_days"]:
+            if days < every:
                 continue
-            overdue = days - r["every_days"]
+            overdue = days - every
         else:
             overdue = 999
         out.append((overdue, r["no"], r))
@@ -200,6 +203,10 @@ def run_region(r, companies_per_run=4, get=requests.get):
     con = db.connect()
     meter = {}
     name = r["name"]
+    import orchestrator
+    plan = orchestrator.get_plan(con, name)
+    if plan and plan["companies"]:
+        companies_per_run = plan["companies"]
     parts = []
     try:
         db.record(con, "research", "regional agent started", "", name)

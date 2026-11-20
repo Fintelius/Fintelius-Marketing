@@ -136,10 +136,16 @@ def cmd_daily(a, con):
         db.log(con, "inbox_error", e)
         steps.append("Inbox check failed: " + str(e)[:120])
     if settings.anthropic_api_key:
+        try:
+            import orchestrator
+            steps.append(orchestrator.run(con))
+        except Exception as e:
+            db.log(con, "orchestrator_error", e)
+            steps.append("Orchestrator failed: " + str(e)[:100])
         a.companies = 4
         a.limit = 15
         a.region = None
-        a.max_regions = 6
+        a.max_regions = 8
         steps += cmd_research(a, con)
         steps += cmd_prepare(a, con)
     steps.append(f"{vendor.prepare(con)} vendor-registration items prepared")
@@ -156,6 +162,14 @@ def cmd_daily(a, con):
     except Exception as e:
         db.log(con, "digest_error", e)
         print("Digest failed:", e)
+
+
+def cmd_plan(a, con):
+    import orchestrator
+    if getattr(a, "refresh", False):
+        orchestrator.assess_potential(con, {}, force=True)
+    for sc, n, e, c in orchestrator.decide(con):
+        print(f"{n:22} score {sc:5} | every {e} day(s) | {c} companies per run")
 
 
 def cmd_records(a, con):
@@ -179,14 +193,16 @@ def cmd_status(a, con):
 def main():
     p = argparse.ArgumentParser()
     sp = p.add_subparsers(dest="cmd", required=True)
-    for name in ("records", "init", "check", "status", "inbox", "daily", "prepare", "research", "send", "stop", "resume"):
+    for name in ("plan", "records", "init", "check", "status", "inbox", "daily", "prepare", "research", "send", "stop", "resume"):
         s = sp.add_parser(name)
         if name == "prepare":
             s.add_argument("--limit", type=int, default=15)
         if name == "research":
             s.add_argument("--companies", type=int, default=4)
             s.add_argument("--region", default=None)
-            s.add_argument("--max-regions", type=int, default=6, dest="max_regions")
+            s.add_argument("--max-regions", type=int, default=8, dest="max_regions")
+        if name == "plan":
+            s.add_argument("--refresh", action="store_true")
         if name == "send":
             s.add_argument("--dry-run", action="store_true")
     s = sp.add_parser("import-csv"); s.add_argument("file")
@@ -203,7 +219,7 @@ def main():
         guard.resume(); return print("Sending can resume.")
     fn = {"init": cmd_init, "check": cmd_check, "import-csv": cmd_import_csv, "research": cmd_research,
           "prepare": cmd_prepare, "show": cmd_show, "approve": cmd_approve, "reject": cmd_reject, "test-send": cmd_test_send,
-          "send": cmd_send, "inbox": cmd_inbox, "daily": cmd_daily, "status": cmd_status, "records": cmd_records, "log": cmd_log}[a.cmd]
+          "send": cmd_send, "inbox": cmd_inbox, "daily": cmd_daily, "status": cmd_status, "records": cmd_records, "plan": cmd_plan, "log": cmd_log}[a.cmd]
     out = fn(a, con)
     if a.cmd in ("research", "prepare") and out:
         print("\n".join(out))
