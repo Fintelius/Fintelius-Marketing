@@ -162,6 +162,11 @@ def cmd_daily(a, con):
     except Exception as e:
         db.log(con, "digest_error", e)
         print("Digest failed:", e)
+    try:
+        import enquiries
+        enquiries.send_cost_report(con)
+    except Exception as e:
+        db.log(con, "cost_report_error", e)
 
 
 def cmd_plan(a, con):
@@ -197,6 +202,8 @@ def cmd_enquiry(a, con):
     elif a.sub == "update":
         enquiries.update(con, a.fp, a.status, a.note or "")
         print("updated", a.fp)
+    elif a.sub == "cost-report":
+        print("sent" if enquiries.send_cost_report(con) else "nothing pending")
     elif a.sub == "done-queue":
         con.execute("UPDATE enquiry_queue SET status='handled' WHERE id=?", (a.id,)); con.commit()
     else:
@@ -233,7 +240,7 @@ def main():
     s = sp.add_parser("approve"); s.add_argument("--all", action="store_true"); s.add_argument("--id", type=int)
     s = sp.add_parser("reject"); s.add_argument("id", type=int)
     s = sp.add_parser("test-send"); s.add_argument("id", type=int); s.add_argument("--to", required=True)
-    s = sp.add_parser("enquiry"); s.add_argument("sub", choices=["add", "update", "list", "done-queue"])
+    s = sp.add_parser("enquiry"); s.add_argument("sub", choices=["add", "update", "list", "done-queue", "cost-report"])
     for k in ("fp", "company", "region", "country", "contact", "email", "designation", "phone", "sr", "ref", "product",
               "via", "received", "due", "onedrive", "outlook", "notes", "website", "status", "note"):
         s.add_argument("--" + k, default="")

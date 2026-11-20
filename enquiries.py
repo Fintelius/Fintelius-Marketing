@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS enquiry_queue(
   id INTEGER PRIMARY KEY, ts TEXT, kind TEXT, sender TEXT, subject TEXT, preview TEXT,
   fp_no TEXT, status TEXT DEFAULT 'open');
 """
-STATUSES = ("registered", "costing", "offer_ready", "offered", "negotiation", "won", "lost", "regretted")
+STATUSES = ("registered", "costing", "offer_prep", "offer_ready", "offered", "negotiation", "won", "lost", "regretted")
 
 
 def ensure(con):
@@ -159,3 +159,65 @@ def report_lines(con):
         out.append(f"{e['fp_no']} {e['company']} - {e['product'] or ''} [{e['status']}] last activity {days} day(s) ago"
                    + (" | " + ", ".join(flags) if flags else ""))
     return out
+
+
+def _days(con, e):
+    return con.execute("SELECT cast(julianday('now')-julianday(?) as int)", (e["created_at"],)).fetchone()[0]
+
+
+def pending_cost(con):
+    """Enquiries whose cost estimation is not done yet. They leave this list when the status moves to offer_prep."""
+    ensure(con)
+    return con.execute(
+        "SELECT e.*, c.name AS company FROM enquiries e LEFT JOIN companies c ON c.id=e.company_id "
+        "WHERE e.status IN ('registered','costing') ORDER BY e.id").fetchall()
+
+
+def to_review(con):
+    """Offers prepared and waiting for the owner's check. Nothing is sent to the client until he approves."""
+    ensure(con)
+    return con.execute(
+        "SELECT e.*, c.name AS company FROM enquiries e LEFT JOIN companies c ON c.id=e.company_id "
+        "WHERE e.status='offer_ready' ORDER BY e.id").fetchall()
+
+
+def build_cost_report(con):
+    import html
+    pend, rev = pending_cost(con), to_review(con)
+    prep = con.execute("SELECT e.*, c.name AS company FROM enquiries e LEFT JOIN companies c ON c.id=e.company_id "
+                       "WHERE e.status='offer_prep' ORDER BY e.id").fetchall()
+    if not (pend or rev or prep):
+        return None
+    h = ["<h2>Fintelius enquiries - cost estimation and offers</h2>"]
+    if rev:
+        h.append("<h3>Offers ready - please check before sending</h3><ul>" + "".join(
+            f"<li><b>{html.escape(e['fp_no'])}</b> {html.escape(e['company'] or '')} - {html.escape(e['product'] or '')}"
+            f" (client ref {html.escape(e['client_ref'] or '')}). Offer is in {html.escape(e['onedrive_folder'] or '')}"
+            "\\Offer Documents. Nothing has been sent to the client.</li>" for e in rev) + "</ul>")
+    h.append(f"<h3>Pending cost estimation ({len(pend)})</h3>")
+    if pend:
+        h.append("<table border='1' cellpadding='5' style='border-collapse:collapse'><tr><th>FP no</th><th>Company</th>"
+                 "<th>Equipment</th><th>Client ref</th><th>Due</th><th>Waiting (days)</th><th>Status</th></tr>")
+        for e in pend:
+            h.append("<tr>" + "".join(f"<td>{html.escape(str(x or ''))}</td>" for x in (
+                e["fp_no"], e["company"], e["product"], e["client_ref"], e["due_date"], _days(con, e), e["status"])) + "</tr>")
+        h.append("</table><p>An enquiry leaves this list when its cost is done; the offer is then prepared and "
+                 "shown above for your check.</p>")
+    else:
+        h.append("<p>None.</p>")
+    if prep:
+        h.append("<h3>Cost received, offer being prepared</h3><ul>" + "".join(
+            f"<li>{html.escape(e['fp_no'])} {html.escape(e['company'] or '')}</li>" for e in prep) + "</ul>")
+    return "".join(h)
+
+
+def send_cost_report(con):
+    import graph
+    from config import settings
+    body = build_cost_report(con)
+    if not body:
+        return False
+    graph.send_mail(settings.digest_to, "Fintelius enquiries - pending cost estimation", body)
+    db.record(con, "enquiry registration agent", "cost report sent", f"{len(pending_cost(con))} pending cost, "
+              f"{len(to_review(con))} offers to review")
+    return True
