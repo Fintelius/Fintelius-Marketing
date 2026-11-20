@@ -14,12 +14,20 @@ def client():
     return _client
 
 
-def ask(system, user, max_tokens=3000, web=False, max_searches=5):
+def ask(system, user, max_tokens=3000, web=False, max_searches=5, meter=None):
+    """meter: optional dict; input/output tokens and web searches used are added to it (for the cost report)."""
     kw = dict(model=settings.model, max_tokens=max_tokens, system=system,
               messages=[{"role": "user", "content": user}])
     if web:
         kw["tools"] = [{"type": "web_search_20250305", "name": "web_search", "max_uses": max_searches}]
     resp = client().messages.create(**kw)
+    if meter is not None:
+        u = getattr(resp, "usage", None)
+        meter["calls"] = meter.get("calls", 0) + 1
+        meter["in"] = meter.get("in", 0) + (getattr(u, "input_tokens", 0) or 0)
+        meter["out"] = meter.get("out", 0) + (getattr(u, "output_tokens", 0) or 0)
+        stu = getattr(u, "server_tool_use", None)
+        meter["searches"] = meter.get("searches", 0) + ((getattr(stu, "web_search_requests", 0) or 0) if stu else 0)
     return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
 
 

@@ -38,12 +38,14 @@ def check_connection():
     return r.status_code, (r.text[:300] if r.status_code != 200 else "ok")
 
 
-def send_mail(to_email, subject, html_body, reply_to=None, attachment=None):
+def send_mail(to_email, subject, html_body, reply_to=None, attachment=None, bcc=None):
     msg = {
         "subject": subject,
         "body": {"contentType": "HTML", "content": html_body},
         "toRecipients": [{"emailAddress": {"address": to_email}}],
     }
+    if bcc:
+        msg["bccRecipients"] = [{"emailAddress": {"address": bcc}}]
     if reply_to:
         msg["replyTo"] = [{"emailAddress": {"address": reply_to}}]
     if attachment:

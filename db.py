@@ -25,7 +25,23 @@ CREATE TABLE IF NOT EXISTS vendor_regs(
   needs_you TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS processed_msgs(id TEXT PRIMARY KEY, ts TEXT);
 CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, ts TEXT, kind TEXT, detail TEXT);
+CREATE TABLE IF NOT EXISTS log(
+  id INTEGER PRIMARY KEY, ts TEXT, region TEXT, company TEXT, agent TEXT, action TEXT, result TEXT, source TEXT);
+CREATE TABLE IF NOT EXISTS portals(
+  id INTEGER PRIMARY KEY, company_id INTEGER, kind TEXT, url TEXT, status TEXT DEFAULT 'found', found_at TEXT,
+  notes TEXT);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_portal ON portals(company_id, kind, lower(url));
+CREATE TABLE IF NOT EXISTS region_runs(region TEXT PRIMARY KEY, last_run TEXT, runs INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS rejected_contacts(email TEXT PRIMARY KEY, reason TEXT, source TEXT, ts TEXT);
 """
+
+# Columns added after the first version. Added automatically to an existing database.
+MIGRATIONS = [
+    ("companies", "region", "TEXT"),
+    ("companies", "contacts_searched_at", "TEXT"),
+    ("contacts", "verified", "INTEGER DEFAULT 0"),
+    ("projects", "region", "TEXT"),
+]
 
 
 def now():
@@ -34,10 +50,29 @@ def now():
 
 def connect():
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(settings.db_path)
+    con = sqlite3.connect(settings.db_path, timeout=60, check_same_thread=False)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA busy_timeout=60000")
+    con.execute("PRAGMA journal_mode=WAL")
     con.executescript(SCHEMA)
+    for table, col, typ in MIGRATIONS:
+        cols = [r[1] for r in con.execute(f"PRAGMA table_info({table})")]
+        if col not in cols:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+    con.commit()
     return con
+
+
+def record(con, agent, action, result="", region="", company="", source=""):
+    """One row in the activity log: who did what, for which region and company, with what result."""
+    con.execute("INSERT INTO log(ts,region,company,agent,action,result,source) VALUES(?,?,?,?,?,?,?)",
+                (now(), region or "", company or "", agent, action, str(result)[:1000], source or ""))
+    con.commit()
+
+
+def company_label(con, company_id):
+    r = con.execute("SELECT name, region FROM companies WHERE id=?", (company_id,)).fetchone()
+    return (r["name"], r["region"] or "") if r else ("", "")
 
 
 def log(con, kind, detail=""):
@@ -73,12 +108,12 @@ def upsert_company(con, name, **f):
     row = con.execute("SELECT id FROM companies WHERE lower(name)=?", (name.lower(),)).fetchone()
     if row:
         for k, v in f.items():
-            if v and k in ("type", "industry", "country", "website", "notes", "source"):
+            if v and k in ("type", "industry", "country", "website", "notes", "source", "region"):
                 con.execute(f"UPDATE companies SET {k}=? WHERE id=? AND coalesce({k},'')=''", (v, row["id"]))
         con.commit()
         return row["id"]
     return _insert(con, "companies", {"name": name, "created_at": now()}, f,
-                   ("type", "industry", "country", "website", "notes", "source"))
+                   ("type", "industry", "country", "website", "notes", "source", "region"))
 
 
 def add_contact(con, company_id, email, **f):
@@ -89,13 +124,24 @@ def add_contact(con, company_id, email, **f):
     if con.execute("SELECT 1 FROM contacts WHERE lower(email)=?", (email,)).fetchone():
         return None
     return _insert(con, "contacts", {"company_id": company_id, "email": email, "created_at": now()}, f,
-                   ("name", "phone", "designation", "department", "source"))
+                   ("name", "phone", "designation", "department", "source", "verified"))
+
+
+def add_portal(con, company_id, kind, url, notes=""):
+    """kind: 'registration' or 'tender'. Returns True if new."""
+    try:
+        con.execute("INSERT INTO portals(company_id,kind,url,found_at,notes) VALUES(?,?,?,?,?)",
+                    (company_id, kind, url, now(), notes))
+        con.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
 
 
 def add_project(con, name, client="", **f):
     try:
         _insert(con, "projects", {"name": name, "client": client, "found_at": now()}, f,
-                ("location", "stage", "source_url", "summary", "industry"))
+                ("location", "stage", "source_url", "summary", "industry", "region"))
         return True
     except sqlite3.IntegrityError:
         return False

@@ -37,6 +37,8 @@ def process(con, days=3):
                     con.execute("UPDATE contacts SET status='bounced' WHERE id=?", (row["id"],))
                     db.add_dnc(con, e, "bounce")
                     stats["bounced"] += 1
+                    comp, reg = db.company_label(con, con.execute("SELECT company_id FROM contacts WHERE id=?", (row["id"],)).fetchone()[0])
+                    db.record(con, "inbox monitor", "bounce", f"{e} undeliverable; added to do-not-contact", reg, comp)
             continue
         if any(x in sl for x in AUTO_SUBJ):
             stats["auto"] += 1
@@ -51,9 +53,13 @@ def process(con, days=3):
         if OPTOUT.search(preview + " " + subj):
             db.add_dnc(con, addr, "opt-out reply")
             stats["optout"] += 1
+            comp, reg = db.company_label(con, row["company_id"])
+            db.record(con, "inbox monitor", "opt-out", addr, reg, comp)
             continue
         con.execute("UPDATE contacts SET status='replied' WHERE id=?", (row["id"],))
         stats["replied"] += 1
+        comp, reg = db.company_label(con, row["company_id"])
+        db.record(con, "inbox monitor", "reply received", f"{addr}: {subj}", reg, comp)
         stats["needs_you"].append(f"REPLY from {row['name'] or addr} ({addr}): {subj} - {preview}")
         db.log(con, "reply", f"{addr} | {subj}")
     con.commit()

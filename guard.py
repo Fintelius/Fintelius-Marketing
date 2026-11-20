@@ -134,3 +134,23 @@ def can_send_to(con, contact):
     if contact["status"] in ("bounced", "dnc", "replied"):
         return False, f"status {contact['status']}"
     return True, ""
+
+
+def domain_accepts_mail(email):
+    """True if the domain of the address can receive mail (has MX records, or at least an address record)."""
+    domain = email.rsplit("@", 1)[-1].lower()
+    try:
+        import dns.resolver
+        try:
+            if list(dns.resolver.resolve(domain, "MX", lifetime=8)):
+                return True
+        except Exception:
+            pass
+    except ImportError:
+        pass
+    import socket
+    try:
+        socket.getaddrinfo(domain, None)
+        return True
+    except Exception:
+        return False

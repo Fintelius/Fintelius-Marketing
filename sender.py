@@ -52,10 +52,14 @@ def run(con, dry_run=False, max_gap=(60, 180), sleep=time.sleep):
             continue
         try:
             graph.send_mail(e["to_email"], e["subject"], writer.html_for(e), reply_to=P.REPLY_TO,
-                            attachment=guard.settings.brochure_path if e["kind"] == "intro" else None)
+                            attachment=guard.settings.brochure_path if e["kind"] == "intro" else None,
+                            bcc=guard.settings.digest_to)
             con.execute("UPDATE emails SET status='sent', sent_at=? WHERE id=?", (db.now(), e["id"]))
             con.execute("UPDATE contacts SET status='emailed' WHERE id=? AND status='new'", (e["contact_id"],))
             con.commit()
+            comp, reg = db.company_label(con, contact["company_id"])
+            db.record(con, "sender", f"{e['kind']} email sent", f"to {e['to_email']} | brochure: {bool(guard.settings.brochure_path)}",
+                      reg, comp)
             result["sent"] += 1
         except Exception as ex:
             con.execute("UPDATE emails SET status='failed', error=? WHERE id=?", (str(ex)[:300], e["id"]))

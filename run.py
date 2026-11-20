@@ -45,29 +45,24 @@ def cmd_import_csv(a, con):
 
 
 def cmd_research(a, con):
-    day = dt.date.today().toordinal()
-    t = research.todays_target(day)
+    """Runs every region that is due, all at the same time (one thread per region)."""
+    from concurrent.futures import ThreadPoolExecutor
+    research.assign_regions(con)
+    if getattr(a, "region", None):
+        todo = [research.region(a.region)]
+    else:
+        todo = research.due_regions(con, max_regions=getattr(a, "max_regions", 6))
     steps = []
-    for label, fn in (("projects", lambda: research.find_projects(con, t)),
-                      ("prospects", lambda: research.find_prospects(con, t))):
-        try:
-            steps.append(f"{t['industry']}: {fn()} new {label}")
-        except Exception as e:
-            db.log(con, "research_error", f"{label}: {e}")
-            steps.append(f"{label} search failed: {str(e)[:120]}")
-    got = 0
-    for c in research.companies_needing_contacts(con, a.companies):
-        try:
-            k = research.find_contacts(con, c)
-        except Exception as e:
-            db.log(con, "research_error", f"{c['name']}: {e}")
-            continue
-        got += k
-        if k == 0:
-            con.execute("INSERT OR IGNORE INTO vendor_regs(company_id,status,updated_at) VALUES(?,?,?)",
-                        (c["id"], "no_contacts_found", db.now()))
-            con.commit()
-    steps.append(f"{got} new contacts with published emails")
+    if not todo:
+        return ["Research: no region is due today"]
+    with ThreadPoolExecutor(max_workers=len(todo)) as pool:
+        futures = [(r["name"], pool.submit(research.run_region, r, getattr(a, "companies", 4))) for r in todo]
+        for name, f in futures:
+            try:
+                steps.append(f.result())
+            except Exception as e:
+                db.log(con, "research_error", f"{name}: {e}")
+                steps.append(f"{name}: failed ({str(e)[:100]})")
     return steps
 
 
@@ -141,11 +136,19 @@ def cmd_daily(a, con):
         db.log(con, "inbox_error", e)
         steps.append("Inbox check failed: " + str(e)[:120])
     if settings.anthropic_api_key:
-        a.companies = 6
+        a.companies = 4
         a.limit = 15
+        a.region = None
+        a.max_regions = 6
         steps += cmd_research(a, con)
         steps += cmd_prepare(a, con)
     steps.append(f"{vendor.prepare(con)} vendor-registration items prepared")
+    try:
+        import archive
+        steps.append("Records refreshed: " + str(archive.refresh(con)))
+    except Exception as e:
+        db.log(con, "archive_error", e)
+        steps.append("Records refresh failed: " + str(e)[:100])
     if settings.send_mode == "auto":
         steps.append("Send: " + str(sender.run(con)))
     try:
@@ -153,6 +156,16 @@ def cmd_daily(a, con):
     except Exception as e:
         db.log(con, "digest_error", e)
         print("Digest failed:", e)
+
+
+def cmd_records(a, con):
+    import archive
+    print("Records written to", archive.refresh(con))
+
+
+def cmd_log(a, con):
+    for x in con.execute("SELECT ts,region,company,agent,action,result FROM log ORDER BY id DESC LIMIT ?", (a.n,)):
+        print(" | ".join(str(v or "") for v in x))
 
 
 def cmd_status(a, con):
@@ -166,15 +179,18 @@ def cmd_status(a, con):
 def main():
     p = argparse.ArgumentParser()
     sp = p.add_subparsers(dest="cmd", required=True)
-    for name in ("init", "check", "status", "inbox", "daily", "prepare", "research", "send", "stop", "resume"):
+    for name in ("records", "init", "check", "status", "inbox", "daily", "prepare", "research", "send", "stop", "resume"):
         s = sp.add_parser(name)
         if name == "prepare":
             s.add_argument("--limit", type=int, default=15)
         if name == "research":
-            s.add_argument("--companies", type=int, default=6)
+            s.add_argument("--companies", type=int, default=4)
+            s.add_argument("--region", default=None)
+            s.add_argument("--max-regions", type=int, default=6, dest="max_regions")
         if name == "send":
             s.add_argument("--dry-run", action="store_true")
     s = sp.add_parser("import-csv"); s.add_argument("file")
+    s = sp.add_parser("log"); s.add_argument("n", type=int, nargs="?", default=30)
     s = sp.add_parser("show"); s.add_argument("id", type=int)
     s = sp.add_parser("approve"); s.add_argument("--all", action="store_true"); s.add_argument("--id", type=int)
     s = sp.add_parser("reject"); s.add_argument("id", type=int)
@@ -187,7 +203,7 @@ def main():
         guard.resume(); return print("Sending can resume.")
     fn = {"init": cmd_init, "check": cmd_check, "import-csv": cmd_import_csv, "research": cmd_research,
           "prepare": cmd_prepare, "show": cmd_show, "approve": cmd_approve, "reject": cmd_reject, "test-send": cmd_test_send,
-          "send": cmd_send, "inbox": cmd_inbox, "daily": cmd_daily, "status": cmd_status}[a.cmd]
+          "send": cmd_send, "inbox": cmd_inbox, "daily": cmd_daily, "status": cmd_status, "records": cmd_records, "log": cmd_log}[a.cmd]
     out = fn(a, con)
     if a.cmd in ("research", "prepare") and out:
         print("\n".join(out))
