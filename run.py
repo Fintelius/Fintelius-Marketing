@@ -202,6 +202,11 @@ def cmd_enquiry(a, con):
     elif a.sub == "update":
         enquiries.update(con, a.fp, a.status, a.note or "")
         print("updated", a.fp)
+    elif a.sub == "import":
+        res = enquiries.import_handoff(con, a.dir or enquiries.HANDOFF_DIR)
+        if res:
+            archive.refresh(con)
+        print("\n".join(res) if res else "nothing to import")
     elif a.sub == "cost-report":
         print("sent" if enquiries.send_cost_report(con) else "nothing pending")
     elif a.sub == "done-queue":
@@ -265,8 +270,8 @@ def main():
     s = sp.add_parser("approve"); s.add_argument("--all", action="store_true"); s.add_argument("--id", type=int)
     s = sp.add_parser("reject"); s.add_argument("id", type=int)
     s = sp.add_parser("test-send"); s.add_argument("id", type=int); s.add_argument("--to", required=True)
-    s = sp.add_parser("enquiry"); s.add_argument("sub", choices=["add", "update", "list", "done-queue", "cost-report"])
-    for k in ("fp", "company", "region", "country", "contact", "email", "designation", "phone", "sr", "ref", "product",
+    s = sp.add_parser("enquiry"); s.add_argument("sub", choices=["add", "update", "list", "done-queue", "cost-report", "import"])
+    for k in ("dir", "fp", "company", "region", "country", "contact", "email", "designation", "phone", "sr", "ref", "product",
               "via", "received", "due", "onedrive", "outlook", "notes", "website", "status", "note"):
         s.add_argument("--" + k, default="")
     s.add_argument("--ack", type=int, default=0); s.add_argument("--docs", type=int, default=0)
