@@ -5,6 +5,7 @@ import graph
 import guard
 import vendor
 import enquiries
+import tenders
 from config import settings
 
 
@@ -46,6 +47,9 @@ def build(con, inbox_stats=None, steps=None):
     el = enquiries.report_lines(con)
     if el:
         h.append("<h3>Client enquiries (registration agent)</h3><ul>" + "".join(f"<li>{html.escape(x)}</li>" for x in el) + "</ul>")
+    tl = tenders.report_lines(con)
+    if tl:
+        h.append("<h3>Tenders (tender agent)</h3><ul>" + "".join(f"<li>{html.escape(x)}</li>" for x in tl) + "</ul>")
     nv = vendor.needs_you(con)
     if nv:
         h.append("<h3>Vendor registration - needs a person</h3><ul>" + "".join(

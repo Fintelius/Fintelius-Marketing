@@ -211,6 +211,31 @@ def cmd_enquiry(a, con):
             print(x)
 
 
+def cmd_tender(a, con):
+    import tenders
+    tenders.ensure(con)
+    if a.sub == "add":
+        tenders.add(con, a.ref, portal=a.portal, buyer=a.buyer, title=a.title, product=a.product,
+                    closing_date=a.closing, estimated_value=a.value, folder=a.folder, notes=a.notes)
+        print("recorded", a.ref)
+    elif a.sub == "update":
+        tenders.update(con, a.ref, status=a.status, verdict=a.verdict, reasons=a.reasons, fp_no=a.fp,
+                       folder=a.folder, note=a.note)
+        print("updated", a.ref)
+    elif a.sub == "portal-add":
+        tenders.portal_add(con, a.name, url=a.url, region=a.region, kind=a.kind, login_status=a.login_status,
+                           login_id=a.login_id, skill=a.skill, notes=a.notes)
+        print("portal recorded", a.name)
+    elif a.sub == "portal-scanned":
+        tenders.portal_scanned(con, a.name); print("scan logged", a.name)
+    elif a.sub == "portals":
+        for x in tenders.portal_lines(con):
+            print(x)
+    else:
+        for x in tenders.report_lines(con):
+            print(x)
+
+
 def cmd_status(a, con):
     for t in ("companies", "contacts", "projects", "emails", "dnc"):
         print(t, con.execute(f"SELECT count(*) FROM {t}").fetchone()[0])
@@ -246,6 +271,10 @@ def main():
         s.add_argument("--" + k, default="")
     s.add_argument("--ack", type=int, default=0); s.add_argument("--docs", type=int, default=0)
     s.add_argument("--id", type=int)
+    s = sp.add_parser("tender"); s.add_argument("sub", choices=["add", "update", "list", "portals", "portal-add", "portal-scanned"])
+    for k in ("ref", "portal", "buyer", "title", "product", "closing", "value", "folder", "notes", "status", "verdict",
+              "reasons", "fp", "note", "name", "url", "region", "kind", "login-status", "login-id", "skill"):
+        s.add_argument("--" + k, default="")
     a = p.parse_args()
     con = db.connect()
     if a.cmd == "stop":
@@ -254,7 +283,7 @@ def main():
         guard.resume(); return print("Sending can resume.")
     fn = {"init": cmd_init, "check": cmd_check, "import-csv": cmd_import_csv, "research": cmd_research,
           "prepare": cmd_prepare, "show": cmd_show, "approve": cmd_approve, "reject": cmd_reject, "test-send": cmd_test_send,
-          "send": cmd_send, "inbox": cmd_inbox, "daily": cmd_daily, "status": cmd_status, "records": cmd_records, "enquiry": cmd_enquiry, "plan": cmd_plan, "log": cmd_log}[a.cmd]
+          "send": cmd_send, "inbox": cmd_inbox, "daily": cmd_daily, "status": cmd_status, "records": cmd_records, "enquiry": cmd_enquiry, "tender": cmd_tender, "plan": cmd_plan, "log": cmd_log}[a.cmd]
     out = fn(a, con)
     if a.cmd in ("research", "prepare") and out:
         print("\n".join(out))
